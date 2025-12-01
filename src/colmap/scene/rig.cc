@@ -329,19 +329,29 @@ std::vector<RigConfig> ReadRigConfig(const std::string& rig_config_path) {
 void ApplyRigConfig(const std::vector<RigConfig>& configs,
                     Database& database,
                     Reconstruction* reconstruction) {
+  LOG(INFO) << "Clearing existing rigs and frames...";
   database.ClearFrames();
   database.ClearRigs();
 
+  LOG(INFO) << "Reading all images from database...";
   const std::vector<Image> images = database.ReadAllImages();
+  LOG(INFO) << "Found " << images.size() << " images.";
+  
   std::set<image_t> configured_image_ids;
 
+  database.BeginTransaction();
+
   for (const RigConfig& config : configs) {
+    LOG(INFO) << "Processing rig configuration with " << config.cameras.size() << " cameras...";
     Rig rig;
 
     const size_t num_cameras = config.cameras.size();
 
     std::vector<std::optional<camera_t>> camera_ids(num_cameras);
     std::map<std::string, std::vector<const Image*>> frame_name_to_images;
+    
+    LOG(INFO) << "Matching images to rig cameras...";
+    size_t matched_images_count = 0;
     for (const Image& image : images) {
       for (size_t camera_idx = 0; camera_idx < num_cameras; ++camera_idx) {
         const auto& config_camera = config.cameras[camera_idx];
@@ -349,6 +359,7 @@ void ApplyRigConfig(const std::vector<RigConfig>& configs,
           const std::string frame_name =
               StringGetAfter(image.Name(), config_camera.image_prefix);
           frame_name_to_images[frame_name].push_back(&image);
+          matched_images_count++;
           std::optional<camera_t>& camera_id = camera_ids[camera_idx];
           if (camera_id.has_value()) {
             THROW_CHECK_EQ(*camera_id, image.CameraId())
@@ -375,6 +386,7 @@ void ApplyRigConfig(const std::vector<RigConfig>& configs,
         }
       }
     }
+    LOG(INFO) << "Matched " << matched_images_count << " images to rig cameras.";
 
     std::set<camera_t> unique_camera_ids;
     for (size_t camera_idx = 0; camera_idx < num_cameras; ++camera_idx) {
@@ -397,6 +409,8 @@ void ApplyRigConfig(const std::vector<RigConfig>& configs,
     rig.SetRigId(database.WriteRig(rig));
     LOG(INFO) << "Configured: " << rig;
 
+    LOG(INFO) << "Writing " << frame_name_to_images.size() << " frames to database...";
+    size_t frame_counter = 0;
     for (auto& [frame_name, images] : frame_name_to_images) {
       Frame frame;
       frame.SetRigId(rig.RigId());
@@ -410,8 +424,13 @@ void ApplyRigConfig(const std::vector<RigConfig>& configs,
         configured_image_ids.insert(image->ImageId());
       }
       frame.SetFrameId(database.WriteFrame(frame));
-      LOG(INFO) << "Configured: " << frame;
+      // LOG(INFO) << "Configured: " << frame; // Reduced logging
+      frame_counter++;
+      if (frame_counter % 1000 == 0) {
+        LOG(INFO) << "Processed " << frame_counter << " frames...";
+      }
     }
+    LOG(INFO) << "Finished writing frames for this rig.";
 
     if (reconstruction != nullptr) {
       UpdateRigAndCameraCalibsFromReconstruction(
@@ -421,6 +440,8 @@ void ApplyRigConfig(const std::vector<RigConfig>& configs,
 
   // Create trivial rigs/frames for images without configuration.
   // This is necessary because we clear rigs/frames above.
+  LOG(INFO) << "Creating trivial rigs for unconfigured images...";
+  size_t trivial_rig_count = 0;
   std::unordered_map<camera_t, rig_t> camera_to_rig_id;
   for (const Image& image : images) {
     if (configured_image_ids.count(image.ImageId()) > 0) {
@@ -439,7 +460,15 @@ void ApplyRigConfig(const std::vector<RigConfig>& configs,
     frame.SetRigId(rig_id_it->second);
     frame.AddDataId(data_t(sensor_id, image.ImageId()));
     frame.SetFrameId(database.WriteFrame(frame));
+    trivial_rig_count++;
+    if (trivial_rig_count % 1000 == 0) {
+        LOG(INFO) << "Processed " << trivial_rig_count << " trivial frames...";
+    }
   }
+  LOG(INFO) << "Created " << trivial_rig_count << " trivial rigs/frames.";
+
+  database.EndTransaction();
+  LOG(INFO) << "Rig configuration completed.";
 
   if (reconstruction != nullptr) {
     UpdateRigsAndFramesFromDatabase(database, reconstruction);
