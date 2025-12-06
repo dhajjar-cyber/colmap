@@ -31,6 +31,9 @@
 #include "colmap/util/endian.h"
 #include "colmap/util/sqlite3_utils.h"
 #include "colmap/util/string.h"
+#include "colmap/util/timer.h"
+
+#include <cstdlib>
 
 namespace colmap {
 namespace {
@@ -459,7 +462,17 @@ class SqliteDatabase : public Database {
     if (database_ != nullptr) {
       FinalizeSQLStatements();
       if (database_entry_deleted_) {
-        SQLITE3_EXEC(database_, "VACUUM", nullptr);
+        const char* skip_vacuum_env = std::getenv("COLMAP_SKIP_DB_VACUUM");
+        if (skip_vacuum_env == nullptr || std::string(skip_vacuum_env) != "1") {
+          LOG(INFO) << "Vacuuming database to reclaim space...";
+          Timer timer;
+          timer.Start();
+          SQLITE3_EXEC(database_, "VACUUM", nullptr);
+          LOG(INFO) << "Database vacuumed in " << timer.ElapsedSeconds()
+                    << " seconds.";
+        } else {
+          LOG(INFO) << "Skipping database vacuum (COLMAP_SKIP_DB_VACUUM=1).";
+        }
         database_entry_deleted_ = false;
       }
       SQLITE3_CALL(sqlite3_close_v2(database_));
