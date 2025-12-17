@@ -344,6 +344,17 @@ std::vector<std::pair<image_t, image_t>> VocabTreePairGenerator::Next() {
   const auto& image_id = retrieval.Data().image_id;
   const auto& image_scores = retrieval.Data().image_scores;
 
+  // Loop closure / retrieval summary for the current query image.
+  // This is intentionally one line per query (not per candidate) to keep logs
+  // readable even for long sequences.
+  const auto& image = cache_->GetImage(image_id);
+  LOG(INFO) << StringPrintf(
+      "Loop detection query [%d/%d]: %s -> %zu candidates",
+      result_idx_ + 1,
+      query_image_ids_.size(),
+      image.Name().c_str(),
+      image_scores.size());
+
   // Compose the image pairs from the scores.
   image_pairs_.reserve(image_scores.size());
   for (const auto image_score : image_scores) {

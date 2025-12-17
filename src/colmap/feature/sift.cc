@@ -1419,7 +1419,10 @@ class SiftGPUFeatureMatcher : public FeatureMatcher {
  private:
   void WarnIfMaxNumMatchesReachedGPU(const FeatureDescriptors& descriptors) {
     if (sift_match_gpu_.GetMaxSift() < descriptors.rows()) {
-      LOG(WARNING) << StringPrintf(
+      // This message can be extremely spammy for large datasets, since it may
+      // trigger for many image pairs. Keep it available for debugging, but do
+      // not emit it at the default log level.
+      VLOG(1) << StringPrintf(
           "Clamping features from %d to %d - consider "
           "increasing the maximum number of matches.",
           descriptors.rows(),
