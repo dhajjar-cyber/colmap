@@ -477,6 +477,9 @@ void FeatureMatcherController::Match(
   // Write results to database
   //////////////////////////////////////////////////////////////////////////////
 
+  size_t total_verified_pairs = 0;
+  size_t total_matches = 0;
+
   for (size_t i = 0; i < num_outputs; ++i) {
     auto output_job = output_queue_.Pop();
     THROW_CHECK(output_job.IsValid());
@@ -490,6 +493,9 @@ void FeatureMatcherController::Match(
     if (output.two_view_geometry.inlier_matches.size() <
         static_cast<size_t>(geometry_options_.min_num_inliers)) {
       output.two_view_geometry = TwoViewGeometry();
+    } else {
+      total_verified_pairs++;
+      total_matches += output.two_view_geometry.inlier_matches.size();
     }
 
     if (!only_verification_) {
@@ -497,6 +503,11 @@ void FeatureMatcherController::Match(
     }
     cache_->WriteTwoViewGeometry(
         output.image_id1, output.image_id2, output.two_view_geometry);
+  }
+
+  if (total_verified_pairs > 0) {
+      LOG(INFO) << StringPrintf("   > Verified Matches: %zu pairs, Avg %zu inliers/pair", 
+                                total_verified_pairs, total_matches / total_verified_pairs);
   }
 
   THROW_CHECK_EQ(output_queue_.Size(), 0);
